@@ -11,6 +11,14 @@ GITHUB_API="https://api.github.com"
 GITHUB_REPO=os.getenv("GITHUB_REPO","Iammdtanvirrahman2007/gAi")
 GITHUB_TOKEN=os.getenv("GITHUB_TOKEN","")
 GITHUB_BRANCH=os.getenv("GITHUB_BRANCH","main")
+ALLOWED_ORIGIN=os.getenv("ALLOWED_ORIGIN","https://iammdtanvirrahman2007.github.io")
+
+@app.after_request
+def cors(response):
+    response.headers["Access-Control-Allow-Origin"]=ALLOWED_ORIGIN
+    response.headers["Access-Control-Allow-Headers"]="Content-Type"
+    response.headers["Access-Control-Allow-Methods"]="GET,POST,OPTIONS"
+    return response
 
 @app.get("/")
 def index(): return render_template("index.html")
