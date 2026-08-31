@@ -1,31 +1,43 @@
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request, Response
 from brain.core import GrowingBrain
+import base64, json, os, urllib.error, urllib.request, urllib.parse
+
 ROOT=Path(__file__).resolve().parents[1]
 brain=GrowingBrain()
 app=Flask(__name__,template_folder="templates",static_folder="static")
+
+GITHUB_API="https://api.github.com"
+GITHUB_REPO=os.getenv("GITHUB_REPO","Iammdtanvirrahman2007/gAi")
+GITHUB_TOKEN=os.getenv("GITHUB_TOKEN","")
+GITHUB_BRANCH=os.getenv("GITHUB_BRANCH","main")
+
 @app.get("/")
 def index(): return render_template("index.html")
+
 @app.get("/api/state")
 def state():
     requests=sorted((ROOT/"code_requests").glob("*.md"),reverse=True)
     return jsonify({"lessons":[lesson.__dict__ for lesson in brain.lessons],"capabilities":[cap.to_dict() for cap in brain.capabilities.all()],"code_requests":[p.name for p in requests]})
+
 @app.get("/api/request/<name>")
 def request_file(name):
     safe=Path(name).name; path=ROOT/"code_requests"/safe
     if path.suffix!=".md" or not path.exists(): return jsonify({"error":"Request not found."}),404
     return Response(path.read_text(encoding="utf-8"),mimetype="text/plain; charset=utf-8")
+
 @app.post("/api/learn")
 def learn():
     data=request.get_json(force=True); topic=str(data.get("topic","")).strip(); content=str(data.get("content","")).strip()
     if not topic or not content: return jsonify({"error":"Topic and lesson are required."}),400
     return jsonify(brain.learn(topic,content).__dict__)
+
 @app.post("/api/question")
 def question():
     data=request.get_json(force=True); q=str(data.get("question","")).strip()
     if not q: return jsonify({"error":"Question is required."}),400
-    result=brain.answer_question(q)
-    return jsonify(result.__dict__)
+    return jsonify(brain.answer_question(q).__dict__)
+
 @app.post("/api/request")
 def code_request():
     data=request.get_json(force=True); capability=str(data.get("capability","")).strip(); reason=str(data.get("reason","")).strip(); target=str(data.get("target_file","TBD")).strip() or "TBD"
@@ -33,4 +45,36 @@ def code_request():
     if not capability or not reason: return jsonify({"error":"Capability and reason are required."}),400
     path=brain.request_code(capability,reason,requirements,target)
     return jsonify({"file":str(path.relative_to(ROOT)),"status":"WAITING_FOR_HUMAN_CODE"})
+
+def github_request(method, path, payload=None):
+    if not GITHUB_TOKEN: raise RuntimeError("GITHUB_TOKEN is not configured on the backend.")
+    body=None if payload is None else json.dumps(payload).encode()
+    req=urllib.request.Request(GITHUB_API+path,data=body,method=method,headers={"Authorization":f"Bearer {GITHUB_TOKEN}","Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28","Content-Type":"application/json"})
+    try:
+        with urllib.request.urlopen(req,timeout=20) as res: return json.loads(res.read().decode())
+    except urllib.error.HTTPError as e:
+        detail=e.read().decode(errors="replace")
+        raise RuntimeError(f"GitHub API error {e.code}: {detail[:500]}") from e
+
+@app.post("/api/github/submit-code")
+def submit_code():
+    data=request.get_json(force=True)
+    path=str(data.get("path","")).strip().lstrip("/")
+    code=str(data.get("code","")).replace("\r\n","\n")
+    message=str(data.get("message","")).strip() or f"Implement gAi code upgrade: {path}"
+    if not path or not code: return jsonify({"error":"File path and code are required."}),400
+    if path.startswith(".git/") or ".." in Path(path).parts: return jsonify({"error":"Unsafe repository path."}),400
+    try:
+        encoded_path=urllib.parse.quote(path,safe="/")
+        existing=github_request("GET",f"/repos/{GITHUB_REPO}/contents/{encoded_path}?ref={urllib.parse.quote(GITHUB_BRANCH)}")
+    except Exception as e:
+        existing=None
+        if "404" not in str(e): return jsonify({"error":str(e)}),502
+    payload={"message":message,"content":base64.b64encode(code.encode()).decode(),"branch":GITHUB_BRANCH}
+    if existing and isinstance(existing,dict) and existing.get("sha"): payload["sha"]=existing["sha"]
+    try:
+        result=github_request("PUT",f"/repos/{GITHUB_REPO}/contents/{encoded_path}",payload)
+        return jsonify({"ok":True,"path":path,"commit":result.get("commit",{}).get("sha"),"url":result.get("content",{}).get("html_url")})
+    except Exception as e: return jsonify({"error":str(e)}),502
+
 if __name__=="__main__": app.run(host="0.0.0.0",port=8000,debug=True)
