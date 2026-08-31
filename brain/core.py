@@ -1,7 +1,16 @@
-"""Minimal core for the human-guided growing AI."""
+"""Core of gAi: a human-guided, non-code-writing growing brain."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+MEMORY_DIR = ROOT / "memory"
+KNOWLEDGE_DIR = ROOT / "knowledge"
+REQUEST_DIR = ROOT / "code_requests"
 
 
 @dataclass
@@ -12,26 +21,118 @@ class Lesson:
 
 
 class GrowingBrain:
-    """Stores lessons and creates human code requests when needed."""
+    """Learn concepts, persist memory, and request human-written code.
 
-    def __init__(self):
-        self.lessons: list[Lesson] = []
-        self.request_counter = 0
+    This core intentionally does not generate implementation code.
+    """
+
+    def __init__(self) -> None:
+        MEMORY_DIR.mkdir(exist_ok=True)
+        KNOWLEDGE_DIR.mkdir(exist_ok=True)
+        REQUEST_DIR.mkdir(exist_ok=True)
+        self.memory_file = MEMORY_DIR / "lessons.json"
+        self.concepts_file = KNOWLEDGE_DIR / "concepts.json"
+        self.lessons: list[Lesson] = self._load_lessons()
+        self.request_counter = self._next_request_number()
+
+    def _load_lessons(self) -> list[Lesson]:
+        if not self.memory_file.exists():
+            return []
+        try:
+            data = json.loads(self.memory_file.read_text(encoding="utf-8"))
+            return [Lesson(**item) for item in data]
+        except (json.JSONDecodeError, TypeError, KeyError):
+            return []
+
+    def _save_lessons(self) -> None:
+        data = [asdict(lesson) for lesson in self.lessons]
+        self.memory_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def _next_request_number(self) -> int:
+        numbers = []
+        for path in REQUEST_DIR.glob("request_*.md"):
+            try:
+                numbers.append(int(path.stem.split("_")[-1]))
+            except ValueError:
+                pass
+        return max(numbers, default=0)
 
     def learn(self, topic: str, content: str) -> Lesson:
+        """Store a human-taught lesson permanently."""
+        topic = topic.strip()
+        content = content.strip()
+        if not topic or not content:
+            raise ValueError("Topic and lesson content cannot be empty.")
+
         lesson = Lesson(
-            topic=topic.strip(),
-            content=content.strip(),
+            topic=topic,
+            content=content,
             learned_at=datetime.now(timezone.utc).isoformat(),
         )
         self.lessons.append(lesson)
+        self._save_lessons()
         return lesson
 
-    def request_code(self, capability: str, reason: str, requirements: list[str]) -> str:
-        """Create a Markdown request for a human to implement a capability."""
+    def request_code(
+        self,
+        capability: str,
+        reason: str,
+        requirements: list[str],
+        target_file: str = "TBD",
+    ) -> Path:
+        """Create a Markdown request for a human implementation."""
+        capability = capability.strip()
+        reason = reason.strip()
+        target_file = target_file.strip() or "TBD"
+        requirements = [item.strip() for item in requirements if item.strip()]
+
+        if not capability or not reason:
+            raise ValueError("Capability and reason cannot be empty.")
+
         self.request_counter += 1
         number = self.request_counter
-        filename = f"code_requests/request_{number:03d}.md"
+        path = REQUEST_DIR / f"request_{number:03d}.md"
         requirements_text = "\n".join(f"- {item}" for item in requirements)
+        if not requirements_text:
+            requirements_text = "- No detailed requirements supplied yet."
 
-        return f"""# CODE REQUEST #{number:03d}\n\nStatus: WAITING_FOR_HUMAN_CODE\n\n## Capability\n{capability}\n\n## Why this is needed\n{reason}\n\n## Requirements\n{requirements_text}\n\n## Rule\nThe AI must not implement this request itself. A human will provide the code.\n"""
+        content = f"""# CODE REQUEST #{number:03d}
+
+Status: WAITING_FOR_HUMAN_CODE
+Created: {datetime.now(timezone.utc).isoformat()}
+
+## Capability
+{capability}
+
+## Why this is needed
+{reason}
+
+## Required file
+`{target_file}`
+
+## Requirements
+{requirements_text}
+
+## Human implementation rule
+The AI must NOT write the implementation code for this request.
+A human will provide the implementation.
+
+## After implementation
+The system should later verify the file, run appropriate tests, and mark
+this request as completed only after the human-provided implementation works.
+"""
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def search_memory(self, query: str) -> list[Lesson]:
+        """Simple local memory search used by the first prototype."""
+        query = query.strip().lower()
+        if not query:
+            return self.lessons
+        return [
+            lesson
+            for lesson in self.lessons
+            if query in lesson.topic.lower() or query in lesson.content.lower()
+        ]
