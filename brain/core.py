@@ -1,6 +1,7 @@
 """Core of gAi: a human-guided, non-code-writing growing brain."""
 from __future__ import annotations
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,8 +40,8 @@ class GrowingBrain:
     def _next_request_number(self):
         nums=[]
         for p in REQUEST_DIR.glob("request_*.md"):
-            try: nums.append(int(p.stem.split("_")[-1]))
-            except ValueError: pass
+            m=re.match(r"request_(\d+)\.md$",p.name)
+            if m: nums.append(int(m.group(1)))
         return max(nums, default=0)
     def learn(self, topic: str, content: str) -> Lesson:
         topic, content = topic.strip(), content.strip()
@@ -63,31 +64,40 @@ class GrowingBrain:
             if any(k in text for k in keywords) and self.capabilities.get(cap) is None:
                 self.capabilities.add(cap,f"Capability inferred from learned topic: {lesson.topic}",[target])
                 self.request_code(cap,f"The brain learned '{lesson.topic}' but lacks this implementation capability.",reqs,target)
+    def _infer_missing_capability(self, question: str):
+        stop={"what","why","how","when","where","who","which","is","are","the","a","an","of","to","in","for","and","or","does","do","can","could","would","should","i","you","it","this","that","explain","tell","me","about"}
+        words=[w for w in re.findall(r"[a-zA-Z0-9_]+",question.lower()) if w not in stop and len(w)>2]
+        topic="_".join(words[:5]) or "general_reasoning"
+        return f"knowledge_reasoning_{topic}", words
     def answer_question(self, question: str) -> AnswerResult:
         q=question.strip()
         if not q: raise ValueError("Question cannot be empty.")
-        tokens={w.lower() for w in q.replace('?',' ').replace(',',' ').split() if len(w)>2}
+        tokens={w.lower() for w in re.findall(r"[a-zA-Z0-9_]+",q) if len(w)>2}
         ranked=[]
         for lesson in self.lessons:
-            words={w.lower() for w in (lesson.topic+' '+lesson.content).replace(',',' ').split() if len(w)>2}
+            words={w.lower() for w in re.findall(r"[a-zA-Z0-9_]+",lesson.topic+' '+lesson.content) if len(w)>2}
             score=len(tokens & words)
             if score: ranked.append((score,lesson))
         ranked.sort(key=lambda x:x[0],reverse=True)
-        known=[x[1].topic for x in ranked[:5]]
-        missing=[]
-        blockers=[]
-        request_files=[]
+        known=[x[1].topic for x in ranked[:5]]; missing=[]; blockers=[]; request_files=[]
         for cap in self.capabilities.all():
-            if cap.status != 'available' and any(word in (q+' '+q).lower() for word in cap.name.lower().split()):
-                missing.append(cap.name); blockers.append(f"Missing capability: {cap.name}")
-                for p in cap.required_files or []: request_files.append(p)
+            if cap.status.lower() != 'available' and any(word in (q+' '+q).lower() for word in cap.name.lower().split()):
+                missing.append(cap.name); blockers.append(f"Missing capability: {cap.name}"); request_files.extend(cap.required_files or [])
         if ranked:
             snippets=[f"{x[1].topic}: {x[1].content}" for x in ranked[:3]]
-            answer="Based on my current learned knowledge:\n"+'\n'.join('- '+s for s in snippets)
-            confidence=min(0.95,0.35+0.12*ranked[0][0])
+            answer="Based on my current learned knowledge:\n"+'\n'.join('- '+s for s in snippets); confidence=min(0.95,0.35+0.12*ranked[0][0])
+            return AnswerResult(answer,confidence,known,missing,blockers,request_files)
+        capability,keywords=self._infer_missing_capability(q)
+        if self.capabilities.get(capability) is None:
+            target=f"brain/modules/{capability}.py"
+            reqs=["Understand the concepts required by the question.","Provide a small, testable interface for the brain.","Add tests so the human implementation can be verified."]
+            path=self.request_code(capability,"Current learned knowledge is insufficient to answer this question reliably.",reqs,target)
+            self.capabilities.add(capability,"Capability requested because the brain could not reliably answer a question.",[target])
+            request_files.append(str(path.relative_to(ROOT)))
         else:
-            answer="I cannot answer reliably from my current learned knowledge. I need more knowledge or a capability upgrade."
-            confidence=0.05; blockers.append("No sufficiently relevant learned knowledge found.")
-        return AnswerResult(answer,confidence,known,missing,blockers,request_files)
+            cap=self.capabilities.get(capability)
+            request_files.extend(cap.required_files or [])
+        blockers.append(f"Missing capability: {capability}. Need more knowledge or a human-provided implementation.")
+        return AnswerResult("I cannot answer reliably from my current learned knowledge yet. I identified what I am missing and created a code-upgrade request for human implementation.",0.05,known,missing or [capability],blockers,request_files)
     def search_memory(self, query):
         q=query.strip().lower(); return [x for x in self.lessons if not q or q in x.topic.lower() or q in x.content.lower()]
