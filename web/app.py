@@ -1,5 +1,5 @@
 from pathlib import Path
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, Response
 from brain.core import GrowingBrain
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +18,14 @@ def state():
         "capabilities": [cap.to_dict() for cap in brain.capabilities.all()],
         "code_requests": [p.name for p in requests],
     })
+
+@app.get("/api/request/<name>")
+def request_file(name: str):
+    safe = Path(name).name
+    path = ROOT / "code_requests" / safe
+    if path.suffix != ".md" or not path.exists():
+        return jsonify({"error": "Request not found."}), 404
+    return Response(path.read_text(encoding="utf-8"), mimetype="text/plain; charset=utf-8")
 
 @app.post("/api/learn")
 def learn():
