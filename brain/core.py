@@ -51,8 +51,13 @@ class GrowingBrain:
         self.lessons = self._load_lessons()
         self.capabilities = CapabilityRegistry(KNOWLEDGE_DIR / "capabilities.json")
         self.request_counter = self._next_request_number()
-        self.language = LanguageEngine()
+        self.language = LanguageEngine(KNOWLEDGE_DIR / "language_model.json")
         self.data = DataAnalyzer()
+
+        # Rebuild the language model from durable lessons when its state is absent.
+        if not self.language.model.counts and self.lessons:
+            for lesson in self.lessons:
+                self.language.learn_text(f"{lesson.topic}. {lesson.content}")
 
     def _load_lessons(self) -> list[Lesson]:
         if not self.memory_file.exists():
@@ -83,6 +88,8 @@ class GrowingBrain:
         lesson = Lesson(topic, content, datetime.now(timezone.utc).isoformat())
         self.lessons.append(lesson)
         self._save_lessons()
+        # Learning updates both declarative memory and language-transition statistics.
+        self.language.learn_text(f"{topic}. {content}")
         self._auto_plan_growth(lesson)
         return lesson
 
