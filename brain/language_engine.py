@@ -1,14 +1,12 @@
-"""Lightweight language understanding and response generation for gAi.
-
-This is intentionally deterministic and dependency-free. It provides intent
-classification, context extraction, and grounded response composition while
-leaving room for a future neural language model backend.
-"""
+"""Language understanding plus a small persistent learned language model."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
+
+from .language_model import NGramLanguageModel
 
 
 @dataclass(frozen=True)
@@ -18,15 +16,18 @@ class Intent:
 
 
 class LanguageEngine:
-    """Understand common question patterns and compose grounded answers."""
+    """Understand common question patterns and generate grounded responses."""
 
-    def __init__(self) -> None:
+    def __init__(self, model_path: Path | None = None) -> None:
         self.stopwords = {
             "what", "why", "how", "when", "where", "who", "which", "is", "are",
             "the", "a", "an", "of", "to", "in", "for", "and", "or", "does",
             "do", "can", "could", "would", "should", "i", "you", "it", "this",
-            "that", "explain", "tell", "me", "about", "please", "the", "from",
+            "that", "explain", "tell", "me", "about", "please", "from",
         }
+        if model_path is None:
+            model_path = Path(__file__).resolve().parent.parent / "knowledge" / "language_model.json"
+        self.model = NGramLanguageModel(model_path)
 
     def normalize(self, text: str) -> str:
         return re.sub(r"\s+", " ", text.strip())
@@ -37,6 +38,9 @@ class LanguageEngine:
             for word in re.findall(r"[a-zA-Z0-9_]+", text)
             if len(word) > 2 and word.lower() not in self.stopwords
         }
+
+    def learn_text(self, text: str) -> int:
+        return self.model.train(text)
 
     def detect_intent(self, question: str) -> Intent:
         q = question.lower()
@@ -72,7 +76,7 @@ class LanguageEngine:
     def compose_grounded_answer(self, question: str, ranked: list[tuple[float, str, str]]) -> str:
         intent = self.detect_intent(question)
         if intent.name == "greeting":
-            return "Hello! I'm gAi. Ask me something from what I've learned, or give me data to analyze."
+            return "Hello! I'm gAi. Ask me something I've learned, or give me data to analyze."
         if not ranked:
             return "I don't have enough learned knowledge to answer that reliably yet."
 
@@ -89,4 +93,8 @@ class LanguageEngine:
         lines = [prefix]
         for _, topic, content in best:
             lines.append(f"- {topic}: {content}")
+
+        generated = self.model.generate(question, max_tokens=28)
+        if generated:
+            lines.append(f"Learned-language continuation: {generated}")
         return "\n".join(lines)
