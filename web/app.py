@@ -1,6 +1,7 @@
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request, Response
 from brain.core import GrowingBrain
+from brain.neural_network import MLP
 import base64, json, os, urllib.error, urllib.request, urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,6 +79,29 @@ def question_csv():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+@app.post("/api/neural/train")
+def neural_train():
+    data = request.get_json(force=True) or {}
+    epochs = int(data.get("epochs", 800))
+    learning_rate = float(data.get("learning_rate", 0.8))
+    network = MLP(2, 4, 1, seed=7)
+    samples = [
+        ([0.0, 0.0], [0.0]),
+        ([0.0, 1.0], [1.0]),
+        ([1.0, 0.0], [1.0]),
+        ([1.0, 1.0], [0.0]),
+    ]
+    history = network.train(samples, epochs=epochs, learning_rate=learning_rate)
+    predictions = [{"input": x, "target": y, "output": network.predict(x)} for x, y in samples]
+    snapshot = network.snapshot()
+    snapshot["training"] = {
+        "epochs": epochs,
+        "learning_rate": learning_rate,
+        "history": [point.__dict__ for point in history],
+        "predictions": predictions,
+    }
+    return jsonify(snapshot)
+
 @app.post("/api/request")
 def code_request():
     data = request.get_json(force=True)
@@ -119,36 +143,22 @@ def submit_code():
     code = str(data.get("code", "")).replace("\r\n", "\n")
     message = str(data.get("message", "")).strip() or f"Implement gAi code upgrade: {path}"
     if not path or not code:
-        return jsonify({"error": "File path and code are required."}), 400
+        return jsonify({"error": "File path and code are required."}),400
     if path.startswith(".git/") or ".." in Path(path).parts:
-        return jsonify({"error": "Unsafe repository path."}), 400
+        return jsonify({"error": "Unsafe repository path."}),400
     try:
-        encoded_path = urllib.parse.quote(path, safe="/")
-        existing = github_request(
-            "GET",
-            f"/repos/{GITHUB_REPO}/contents/{encoded_path}?ref={urllib.parse.quote(GITHUB_BRANCH)}",
-        )
+        encoded_path=urllib.parse.quote(path,safe="/")
+        existing=github_request("GET",f"/repos/{GITHUB_REPO}/contents/{encoded_path}?ref={urllib.parse.quote(GITHUB_BRANCH)}")
     except Exception as e:
-        existing = None
-        if "404" not in str(e):
-            return jsonify({"error": str(e)}), 502
-    payload = {
-        "message": message,
-        "content": base64.b64encode(code.encode()).decode(),
-        "branch": GITHUB_BRANCH,
-    }
-    if existing and isinstance(existing, dict) and existing.get("sha"):
-        payload["sha"] = existing["sha"]
+        existing=None
+        if "404" not in str(e): return jsonify({"error":str(e)}),502
+    payload={"message":message,"content":base64.b64encode(code.encode()).decode(),"branch":GITHUB_BRANCH}
+    if existing and isinstance(existing,dict) and existing.get("sha"): payload["sha"]=existing["sha"]
     try:
-        result = github_request("PUT", f"/repos/{GITHUB_REPO}/contents/{encoded_path}", payload)
-        return jsonify({
-            "ok": True,
-            "path": path,
-            "commit": result.get("commit", {}).get("sha"),
-            "url": result.get("content", {}).get("html_url"),
-        })
+        result=github_request("PUT",f"/repos/{GITHUB_REPO}/contents/{encoded_path}",payload)
+        return jsonify({"ok":True,"path":path,"commit":result.get("commit",{}).get("sha"),"url":result.get("content",{}).get("html_url")})
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return jsonify({"error":str(e)}),502
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+if __name__=="__main__":
+    app.run(host="0.0.0.0",port=8000,debug=True)
