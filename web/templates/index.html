@@ -1,6 +1,118 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>gAi • Growing Brain</title><link rel="stylesheet" href="/static/style.css"></head><body><header><h1>🧠 gAi</h1><span>Human-guided Growing AI · v0.6</span></header><main><section class="card hero"><h2>💬 Ask gAi</h2><p>Ask a question. gAi answers using its current learned knowledge, reports confidence and blockers, and tells you when a capability upgrade is needed. It never writes implementation code.</p><textarea id="question" placeholder="Ask gAi anything it has learned..."></textarea><button onclick="ask()">Ask gAi</button><div id="answer"></div></section><section class="grid"><section class="card"><h2>🧑‍🏫 Teach</h2><input id="topic" placeholder="Topic"><textarea id="content" placeholder="What are you teaching gAi?"></textarea><button onclick="teach()">Teach</button><p id="teachStatus"></p></section><section class="card"><h2>📊 Progress</h2><div id="progress">Loading...</div></section></section><section class="card"><h2>📋 Upgrade Requests</h2><div id="requests">Loading...</div></section><section class="grid"><section class="card"><h2>🧠 Memory</h2><div id="lessons">Loading...</div></section><section class="card"><h2>⚙️ Capabilities</h2><div id="capabilities">Loading...</div></section></section></main><script>
-const $=id=>document.getElementById(id);function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-async function refresh(){const s=await fetch('/api/state').then(r=>r.json());$('lessons').innerHTML=s.lessons.length?s.lessons.slice().reverse().map(x=>`<article><b>${esc(x.topic)}</b><p>${esc(x.content)}</p></article>`).join(''):'No lessons yet.';$('capabilities').innerHTML=s.capabilities.length?s.capabilities.map(x=>`<article><b>${esc(x.name)}</b> <span class="badge ${esc(x.status)}">${esc(x.status)}</span><p>${esc(x.description)}</p></article>`).join(''):'No capabilities tracked yet.';$('requests').innerHTML=s.code_requests.length?s.code_requests.map(x=>`<div class="request">📝 <a href="/api/request/${encodeURIComponent(x)}" target="_blank">${esc(x)}</a></div>`).join(''):'No upgrade requests yet.';$('progress').innerHTML=`<b>Lessons:</b> ${s.lessons.length}<br><b>Capabilities:</b> ${s.capabilities.length}<br><b>Upgrade requests:</b> ${s.code_requests.length}`}
-async function ask(){const q=$('question').value.trim();if(!q)return;const r=await fetch('/api/question',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(!r.ok){$('answer').innerHTML='<p>⚠ '+esc(d.error)+'</p>';return}$('answer').innerHTML=`<article class="answer"><h3>Answer</h3><p>${esc(d.answer).replace(/\n/g,'<br>')}</p><p><b>Confidence:</b> ${(d.confidence*100).toFixed(0)}%</p><p><b>Known:</b> ${d.known.length?d.known.map(esc).join(', '):'none'}</p><p><b>Blocked by:</b> ${d.blockers.length?d.blockers.map(esc).join('; '):'none'}</p><p><b>Upgrade files:</b> ${d.request_files.length?d.request_files.map(esc).join(', '):'none'}</p></article>`}
-async function teach(){const r=await fetch('/api/learn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:$('topic').value,content:$('content').value})});const d=await r.json();$('teachStatus').textContent=r.ok?'✓ Learned. Growth analysis completed.':'⚠ '+d.error;if(r.ok){$('topic').value='';$('content').value='';refresh()}}
-refresh();</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>gAi • Growing Brain</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header><h1>🧠 gAi</h1><span>Human-guided Growing AI · v0.7</span></header>
+<main>
+  <section class="card hero">
+    <h2>💬 Ask gAi</h2>
+    <p>Ask a question. gAi answers from learned knowledge and can analyze structured data.</p>
+    <textarea id="question" placeholder="Ask gAi anything it has learned..."></textarea>
+    <button onclick="ask()">Ask gAi</button>
+    <div id="answer"></div>
+  </section>
+
+  <section class="card progress-card">
+    <h2>📊 Progress</h2>
+    <div id="progress">Loading...</div>
+  </section>
+
+  <section class="card full">
+    <h2>🧠 Neural Network Lab</h2>
+    <p class="muted">Train a tiny real neural network on XOR and watch activations, weights and loss change.</p>
+    <div class="neural-toolbar">
+      <label>Epochs <input class="input small" id="epochs" type="number" min="10" max="10000" value="800"></label>
+      <label>Learning rate <input class="input small" id="lr" type="number" min="0.01" max="2" step="0.01" value="0.8"></label>
+      <button onclick="trainNeural()">▶ Train Neural Network</button>
+    </div>
+    <div id="neuralStatus" class="muted">Ready.</div>
+    <div id="networkView" class="network-view"></div>
+    <div class="training-grid">
+      <div class="mini-card"><h3>📉 Loss</h3><canvas id="lossChart" width="900" height="240"></canvas></div>
+      <div class="mini-card"><h3>🎯 Predictions</h3><div id="predictions"></div></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <section class="card">
+      <h2>🧑‍🏫 Teach</h2>
+      <input class="input" id="topic" placeholder="Topic">
+      <textarea id="content" placeholder="What are you teaching gAi?"></textarea>
+      <button onclick="teach()">Teach</button>
+      <p id="teachStatus"></p>
+    </section>
+    <section class="card">
+      <h2>📋 Upgrade Requests</h2>
+      <div id="requests">Loading...</div>
+    </section>
+  </section>
+
+  <section class="grid">
+    <section class="card"><h2>🧠 Memory</h2><div id="lessons">Loading...</div></section>
+    <section class="card"><h2>⚙️ Capabilities</h2><div id="capabilities">Loading...</div></section>
+  </section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+async function refresh(){
+  const r=await fetch('/api/state'); const s=await r.json();
+  $('lessons').innerHTML=s.lessons.length?s.lessons.slice().reverse().map(x=>`<article class="item"><b>${esc(x.topic)}</b><p>${esc(x.content)}</p></article>`).join(''):'No lessons yet.';
+  $('capabilities').innerHTML=s.capabilities.length?s.capabilities.map(x=>`<article class="item"><b>${esc(x.name)}</b> <span class="badge ${esc(x.status)}">${esc(x.status)}</span><p>${esc(x.description)}</p></article>`).join(''):'No capabilities tracked yet.';
+  $('requests').innerHTML=s.code_requests.length?s.code_requests.map(x=>`<div class="request">📝 <a href="/api/request/${encodeURIComponent(x)}" target="_blank">${esc(x)}</a></div>`).join(''):'No upgrade requests yet.';
+  $('progress').innerHTML=`<div class="stats"><div class="stat"><b>${s.lessons.length}</b><span>Lessons</span></div><div class="stat"><b>${s.capabilities.length}</b><span>Capabilities</span></div><div class="stat"><b>${s.code_requests.length}</b><span>Requests</span></div></div>`;
+}
+
+async function ask(){
+  const q=$('question').value.trim(); if(!q)return;
+  const r=await fetch('/api/question',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+  const d=await r.json();
+  if(!r.ok){$('answer').innerHTML='<p>⚠ '+esc(d.error)+'</p>';return}
+  $('answer').innerHTML=`<article class="answer"><h3>Answer</h3><p>${esc(d.answer).replace(/\n/g,'<br>')}</p><p><b>Confidence:</b> ${(d.confidence*100).toFixed(0)}%</p><p><b>Intent:</b> ${esc(d.intent||'general')}</p><p><b>Known:</b> ${d.known.length?d.known.map(esc).join(', '):'none'}</p><p><b>Blocked by:</b> ${d.blockers.length?d.blockers.map(esc).join('; '):'none'}</p></article>`;
+}
+
+async function teach(){
+  const r=await fetch('/api/learn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:$('topic').value,content:$('content').value})});
+  const d=await r.json(); $('teachStatus').textContent=r.ok?'✓ Learned and language model updated.':'⚠ '+d.error;
+  if(r.ok){$('topic').value='';$('content').value='';refresh()}
+}
+
+function nodeHTML(value,label,index){return `<div class="neuron"><div class="node">${Number(value).toFixed(3)}</div><span>${label}${index+1}</span></div>`}
+
+function renderNetwork(data){
+  const colors={};
+  const layers=data.layers;
+  $('networkView').innerHTML=`<div class="network-layer"><h4>Input</h4>${layers[0].values.map((v,i)=>nodeHTML(v,'x',i)).join('')}</div><div class="network-links"><div>weights</div><div class="weight-list">${data.weights.input_hidden.flatMap((row,i)=>row.map((w,j)=>`<span>${i+1}→${j+1}: ${w.toFixed(3)}</span>`)).join('')}</div></div><div class="network-layer"><h4>Hidden</h4>${layers[1].values.map((v,i)=>nodeHTML(v,'h',i)).join('')}</div><div class="network-links"><div>weights</div><div class="weight-list">${data.weights.hidden_output.flatMap((row,i)=>row.map((w,j)=>`<span>${i+1}→${j+1}: ${w.toFixed(3)}</span>`)).join('')}</div></div><div class="network-layer"><h4>Output</h4>${layers[2].values.map((v,i)=>nodeHTML(v,'y',i)).join('')}</div>`;
+}
+
+function drawLoss(history){
+  const canvas=$('lossChart'),ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+  if(!history.length)return;
+  const pad=30,maxLoss=Math.max(...history.map(x=>x.loss),0.001),minLoss=0;
+  ctx.strokeStyle='rgba(255,255,255,.18)';ctx.beginPath();ctx.moveTo(pad,pad);ctx.lineTo(pad,canvas.height-pad);ctx.lineTo(canvas.width-pad,canvas.height-pad);ctx.stroke();
+  ctx.strokeStyle='#8f7cff';ctx.lineWidth=3;ctx.beginPath();
+  history.forEach((p,i)=>{const x=pad+(canvas.width-2*pad)*(i/(history.length-1||1));const y=canvas.height-pad-(canvas.height-2*pad)*((p.loss-minLoss)/(maxLoss-minLoss||1));if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)});ctx.stroke();
+  ctx.fillStyle='#aab3c4';ctx.font='12px system-ui';ctx.fillText(`loss ${maxLoss.toFixed(3)}`,pad,18);ctx.fillText(`epoch ${history[history.length-1].epoch}`,canvas.width-110,canvas.height-8);
+}
+
+function renderPredictions(predictions){$('predictions').innerHTML=predictions.map(p=>`<div class="prediction"><span>[${p.input.join(', ')}]</span><span>target ${p.target[0].toFixed(0)}</span><b>${p.output[0].toFixed(4)}</b></div>`).join('')}
+
+async function trainNeural(){
+  const epochs=Number($('epochs').value)||800, learning_rate=Number($('lr').value)||0.8;
+  $('neuralStatus').textContent='Training...';
+  const r=await fetch('/api/neural/train',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({epochs,learning_rate})});
+  const d=await r.json(); if(!r.ok){$('neuralStatus').textContent='⚠ '+(d.error||'Training failed');return}
+  $('neuralStatus').textContent=`Trained ${d.training.epochs} epochs · final loss ${d.training.history.at(-1).loss.toFixed(6)} · architecture ${d.architecture.join(' → ')}`;
+  renderNetwork(d); drawLoss(d.training.history); renderPredictions(d.training.predictions);
+}
+
+$('question').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask()}});
+refresh();
+</script>
+</body></html>
