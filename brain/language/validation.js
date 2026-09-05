@@ -1,0 +1,61 @@
+/* gAi Validation Engine v1
+ * Local holdout evaluation for the tiny browser Transformer.
+ * Uses an 80/20 train/validation split and lexical next-text agreement.
+ */
+import {samples as getSamples} from './dataset.js';
+import {generate,stats as modelStats} from './micro_transformer.js';
+
+const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+const words=s=>clean(s).toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').split(/\s+/).filter(Boolean);
+
+function split(data,ratio=.2){
+  const a=data.slice();
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+  const n=a.length<2?Math.max(0,Math.floor(a.length*ratio)):Math.max(1,Math.floor(a.length*ratio));
+  return{train:a.slice(n),validation:a.slice(0,n)};
+}
+
+export function evaluate(ratio=.2,limit=24){
+  const data=getSamples();
+  if(data.length<2)return{ok:false,reason:'NEED_AT_LEAST_2_SAMPLES',samples:data.length};
+  const set=split(data,Math.max(.1,Math.min(.5,Number(ratio)||.2))).validation.slice(0,Math.max(1,Number(limit)||24));
+  let total=0,matched=0,examples=[];
+  for(const s of set){
+    const source=words(s.text); if(!source.length)continue;
+    const cut=Math.max(1,Math.floor(source.length*.55));
+    const prompt=source.slice(0,cut).join(' ');
+    const expected=source.slice(cut,Math.min(source.length,cut+12));
+    const prediction=words(generate(prompt,12));
+    const expectedSet=new Set(expected);
+    const hit=prediction.filter(w=>expectedSet.has(w)).length;
+    const score=expected.length?hit/expected.length:0;
+    matched+=score; total++;
+    if(examples.length<5)examples.push({topic:s.topic,score:Math.round(score*100),prompt,prediction:prediction.join(' '),expected:expected.join(' ')});
+  }
+  const accuracy=total?matched/total:0;
+  return{ok:true,accuracy,accuracyPercent:Math.round(accuracy*100),validationSamples:total,datasetSamples:data.length,model:modelStats(),examples};
+}
+
+export function validationSplit(ratio=.2){const d=getSamples();return split(d,ratio)}
+
+export function installUI(){
+  if(typeof document==='undefined')return;
+  const install=()=>{
+    const box=document.getElementById('llmStats');
+    if(!box||document.getElementById('validationControls'))return;
+    const wrap=document.createElement('div');wrap.id='validationControls';
+    wrap.style.cssText='margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)';
+    wrap.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="primary mini" id="runValidationBtn">🧪 Run Validation</button><span id="validationResult" class="muted">Holdout test: 20%</span></div><div id="validationExamples" class="muted" style="margin-top:8px"></div>';
+    box.parentNode.appendChild(wrap);
+    document.getElementById('runValidationBtn').onclick=()=>{
+      const r=evaluate();const out=document.getElementById('validationResult');
+      if(!r.ok){out.textContent='⚠ '+r.reason;return}
+      out.textContent=`✓ Validation accuracy ${r.accuracyPercent}% • ${r.validationSamples} samples`;
+      document.getElementById('validationExamples').innerHTML=r.examples.map(x=>`<div style="margin-top:5px">${String(x.topic)}: <b>${x.score}%</b> • predicted: ${String(x.prediction||'∅')}</div>`).join('');
+    };
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+  setTimeout(install,700);
+}
+if(typeof window!=='undefined')installUI();
+export default{evaluate,validationSplit,installUI};
