@@ -14,6 +14,4 @@ export function markEpoch(){const d=load();d.epochs++;save(d);return d.epochs}
 export function stats(){const d=load();const chars=d.samples.reduce((n,s)=>n+s.text.length,0);const topics=new Set(d.samples.map(s=>s.topic)).size;return{samples:d.samples.length,characters:chars,epochs:d.epochs,topics}}
 export function clear(){try{localStorage.removeItem(KEY)}catch{}}
 export default{add,addLessons,samples,batches,markEpoch,stats,clear};
-
-/* Load optional browser-local training/evaluation modules after this module evaluates. */
-if(typeof window!=='undefined')setTimeout(()=>{import('./batch_trainer.js').catch(()=>{});import('./validation.js').catch(()=>{});},0);
+if(typeof window!=='undefined')setTimeout(()=>{import('./batch_trainer.js').catch(()=>{});import('./validation.js').catch(()=>{});import('./metrics_dashboard.js').catch(()=>{});},0);
