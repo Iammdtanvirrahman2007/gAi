@@ -35,3 +35,29 @@ export function checkpointInfo(){const c=loadCheckpoint();return c?{exists:true,
 export function resetModel(){try{localStorage.removeItem(KEY)}catch{}}
 export function resetCheckpoint(){try{localStorage.removeItem(CKEY)}catch{}}
 export default{train,trainFromLessons,generate,inspect,stats,checkpoint,restoreCheckpoint,checkpointInfo,resetModel,resetCheckpoint};
+
+/* UI bridge: keeps the existing page compatible while exposing v5 checkpoint controls. */
+function installV5UI(){
+  const patch=()=>{
+    const statsBox=document.getElementById('llmStats');
+    if(statsBox && !document.getElementById('checkpointControls')){
+      const wrap=document.createElement('div');
+      wrap.id='checkpointControls';
+      wrap.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px';
+      wrap.innerHTML='<button class="primary mini" id="saveCheckpointBtn">💾 Save Checkpoint</button><button class="primary mini" id="restoreCheckpointBtn">↩ Restore</button><button class="primary mini" id="resetCheckpointBtn">🗑 Reset</button><span id="checkpointStatus" class="muted" style="align-self:center"></span>';
+      statsBox.parentNode.appendChild(wrap);
+      document.getElementById('saveCheckpointBtn').onclick=()=>{const r=checkpoint('manual');document.getElementById('checkpointStatus').textContent=r.ok?`✓ Saved at step ${r.trainSteps}`:'✕ Save failed';renderV5Stats()};
+      document.getElementById('restoreCheckpointBtn').onclick=()=>{const r=restoreCheckpoint();document.getElementById('checkpointStatus').textContent=r.ok?`✓ Restored step ${r.trainSteps}`:'⚠ No checkpoint';renderV5Stats()};
+      document.getElementById('resetCheckpointBtn').onclick=()=>{resetCheckpoint();document.getElementById('checkpointStatus').textContent='✓ Checkpoint deleted';renderV5Stats()};
+    }
+    const percent=document.getElementById('llmPercent'),bar=document.getElementById('llmBar'),steps=document.getElementById('llmSteps');
+    if(percent)percent.textContent='65%'; if(bar)bar.style.width='65%';
+    if(steps){steps.innerHTML=['Tokenizer','Vocabulary','Embeddings','Positional encoding','Causal self-attention','Feed-forward block','Backpropagation','Adam optimizer','Full Transformer backprop','Better tokenizer','Dataset pipeline','Checkpoint / inference pipeline','Large dataset training'].map((x,i)=>`<span class="${i<12?'done':'next'}">${i<12?'✓':'○'} ${x}</span>`).join('')}
+    document.querySelectorAll('*').forEach(el=>{if(el.children.length===0&&el.textContent.trim()==='Micro Transformer v4')el.textContent='Micro Transformer v5'});
+    renderV5Stats();
+  };
+  const renderV5Stats=()=>{const box=document.getElementById('llmStats');if(!box)return;const s=stats(),c=checkpointInfo();box.innerHTML=`Transformer: <b>v5</b> • vocab ${s.vocabulary} • train steps ${s.trainSteps} • loss ${Number(s.loss||0).toFixed(3)} • optimizer ${s.optimizer}<br>Tokenizer: <b>${window.gAiTokenizer?.stats?.().merges||0}</b> learned merges • checkpoint: <b>${c.exists?'READY':'none'}</b>${c.exists?` • saved step ${c.trainSteps}`:''}`;};
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',patch);else patch();
+  window.addEventListener('gAiTrainingComplete',renderV5Stats);
+}
+installV5UI();
