@@ -1,4 +1,4 @@
-/* gAi Micro Transformer v5
+/* gAi Micro Transformer v6
  * Browser-native single-block Transformer experiment.
  * Pipeline: learned subword tokenizer -> dataset text -> Transformer -> Adam -> checkpoint.
  * Tiny and educational, not a production LLM.
@@ -7,14 +7,20 @@ import {encode,decode,train as trainTokenizer} from './tokenizer.js';
 const KEY='gAiMicroTransformerV5',CKEY='gAiMicroTransformerCheckpointV1';
 const CFG={dim:24,heads:4,maxSeq:48,lr:.003,minLR:.0003,warmup:25,beta1:.9,beta2:.999,eps:1e-8,clip:1.0};
 const START='<s>',END='</s>';
-const clean=s=>String(s||'').replace(/\s+/g,' ').trim(); const tok=s=>encode(clean(s));
-const rand=(n,scale=.06)=>Array.from({length:n},()=> (Math.random()*2-1)*scale),matrix=(r,c,scale=.06)=>Array.from({length:r},()=>rand(c,scale)),zeros=(r,c)=>Array.from({length:r},()=>Array(c).fill(0)),zvec=n=>Array(n).fill(0);
-const dot=(a,b)=>{let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s}; const matvec=(M,x)=>M.map(r=>dot(r,x));
-const add=(a,b)=>a.map((x,i)=>x+b[i]); const softmax=a=>{const mx=Math.max(...a),e=a.map(x=>Math.exp(Math.max(-30,Math.min(30,x-mx)))),s=e.reduce((a,b)=>a+b,0)||1;return e.map(x=>x/s)};
+const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+const tok=s=>encode(clean(s));
+const rand=(n,scale=.06)=>Array.from({length:n},()=> (Math.random()*2-1)*scale);
+const matrix=(r,c,scale=.06)=>Array.from({length:r},()=>rand(c,scale));
+const zeros=(r,c)=>Array.from({length:r},()=>Array(c).fill(0)),zvec=n=>Array(n).fill(0);
+const dot=(a,b)=>{let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s};
+const matvec=(M,x)=>M.map(r=>dot(r,x));
+const add=(a,b)=>a.map((x,i)=>x+b[i]);
+const softmax=a=>{const mx=Math.max(...a),e=a.map(x=>Math.exp(Math.max(-30,Math.min(30,x-mx)))),s=e.reduce((a,b)=>a+b,0)||1;return e.map(x=>x/s)};
 function norm(x){const mean=x.reduce((a,b)=>a+b,0)/x.length,variance=x.reduce((a,b)=>a+(b-mean)**2,0)/x.length,inv=1/Math.sqrt(variance+1e-5);return{x:x.map(v=>(v-mean)*inv),mean,inv}}
 function normBackward(dy,c){const n=dy.length,sum=dy.reduce((a,b)=>a+b,0),sumx=dy.reduce((a,b,i)=>a+b*c.x[i],0);return dy.map((g,i)=>(n*g-sum-c.x[i]*sumx)*c.inv/n)}
-function load(){try{return JSON.parse(localStorage.getItem(KEY))||null}catch{return null}} function save(m){try{localStorage.setItem(KEY,JSON.stringify(m))}catch{}}
-function empty(){const d=CFG.dim;return{version:5,vocab:[START,END],ids:{[START]:0,[END]:1},E:matrix(2,d),P:matrix(CFG.maxSeq,d),Wq:matrix(d,d),Wk:matrix(d,d),Wv:matrix(d,d),Wo:matrix(d,d),W1:matrix(d*2,d),W2:matrix(d,d*2),b2:rand(d),Wout:matrix(2,d),bout:[0,0],opt:{t:0,state:{}},trainSteps:0,loss:0}}
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||null}catch{return null}}
+function save(m){try{localStorage.setItem(KEY,JSON.stringify(m))}catch{}}
+function empty(){const d=CFG.dim;return{version:6,vocab:[START,END],ids:{[START]:0,[END]:1},E:matrix(2,d),P:matrix(CFG.maxSeq,d),Wq:matrix(d,d),Wk:matrix(d,d),Wv:matrix(d,d),Wo:matrix(d,d),W1:matrix(d*2,d),W2:matrix(d,d*2),b2:rand(d),Wout:matrix(2,d),bout:[0,0],opt:{t:0,state:{}},trainSteps:0,loss:0}}
 function ensure(){let m=load();if(!m||!m.E||!m.Wq||!m.W1||!m.Wout)m=empty();if(!m.P||m.P.length!==CFG.maxSeq)m.P=matrix(CFG.maxSeq,CFG.dim);if(!m.W1||m.W1.length!==CFG.dim*2)m.W1=matrix(CFG.dim*2,CFG.dim);if(!m.W2||m.W2.length!==CFG.dim)m.W2=matrix(CFG.dim,CFG.dim*2);if(!m.b2||m.b2.length!==CFG.dim)m.b2=rand(CFG.dim);if(!m.opt)m.opt={t:0,state:{}};if(!m.opt.state)m.opt.state={};save(m);return m}
 function resize(m){while(m.E.length<m.vocab.length)m.E.push(rand(CFG.dim));while(m.Wout.length<m.vocab.length)m.Wout.push(rand(CFG.dim));while(m.bout.length<m.vocab.length)m.bout.push(0)}
 function addVocab(m,tokens){for(const t of tokens)if(!(t in m.ids)){m.ids[t]=m.vocab.length;m.vocab.push(t)}resize(m)}
@@ -25,10 +31,11 @@ function adam(m,g){const o=m.opt,t=++o.t,b1=CFG.beta1,b2=CFG.beta2,base=CFG.lr,l
 function step(m,text){const tokens=[START,...tok(text),END].slice(0,CFG.maxSeq);addVocab(m,tokens);let loss=0,steps=0;for(let i=1;i<tokens.length;i++){const input=tokens.slice(Math.max(0,i-12),i),target=m.ids[tokens[i]],f=forward(m,input.map(t=>m.ids[t])),pr=softmax(f.logits);if(!Number.isFinite(pr[target]))continue;const sampleLoss=-Math.log(Math.max(1e-8,pr[target]||1e-8));if(!Number.isFinite(sampleLoss))continue;loss+=sampleLoss;adam(m,gradients(m,f,target));steps++}m.trainSteps+=steps;m.loss=steps?loss/steps:m.loss;return{loss:m.loss,steps}}
 export function train(text,epochs=1){const raw=clean(text);if(!raw)return{loss:0,steps:0,vocab:ensure().vocab.length,trainSteps:ensure().trainSteps};trainTokenizer(raw,24);const m=ensure(),pieces=raw.split(/[.!?\n]+/).map(clean).filter(Boolean);let loss=0,steps=0;for(let e=0;e<epochs;e++)for(const s of pieces){const r=step(m,s);loss+=r.loss;steps+=r.steps}save(m);checkpoint('auto');return{loss:steps?loss/steps:0,steps,vocab:m.vocab.length,trainSteps:m.trainSteps}}
 export function trainFromLessons(lessons=[]){const corpus=lessons.map(l=>`${l.topic}. ${l.content}`).join('\n');return corpus?train(corpus,1):{loss:0,steps:0,vocab:ensure().vocab.length,trainSteps:ensure().trainSteps}}
-export function generate(prompt='',maxTokens=24){const m=ensure(),ctx=tok(prompt).slice(-12);let ids=ctx.length?ctx.map(t=>m.ids[t]??m.ids[START]):[m.ids[START]],out=[];for(let i=0;i<maxTokens;i++){const f=forward(m,ids),p=softmax(f.logits),rank=p.map((v,id)=>({v,id})).filter(x=>x.id>1).sort((a,b)=>b.v-a.v).slice(0,Math.min(6,m.vocab.length-2));if(!rank.length)break;let r=Math.random()*(rank.reduce((a,x)=>a+x.v,0)||1),chosen=rank[0].id;for(const x of rank){r-=x.v;if(r<=0){chosen=x.id;break}}const t=m.vocab[chosen];if(t===END)break;out.push(t);ids=[...ids,chosen].slice(-12)}return decode(out)}
+function sampleNext(logits,temperature=.72,topK=8,topP=.9,recent=[]){const scaled=logits.map((v,i)=>({i,v:Number.isFinite(v)?v:-30}));const counts=new Map(recent.map(x=>[x,(recent.filter(y=>y===x).length)]));for(const x of scaled){const c=counts.get(x.i)||0;if(c)x.v-=Math.min(2.5,c*.8)}const temp=Math.max(.2,Math.min(1.5,Number(temperature)||.72));const probs=softmax(scaled.map(x=>x.v/temp));let ranked=probs.map((v,i)=>({i,v})).filter(x=>x.i>1&&Number.isFinite(x.v)).sort((a,b)=>b.v-a.v).slice(0,Math.max(1,topK));const total=ranked.reduce((a,x)=>a+x.v,0)||1;ranked=ranked.map(x=>({...x,v:x.v/total}));let acc=0,cut=[];for(const x of ranked){cut.push(x);acc+=x.v;if(acc>=Math.max(.5,Math.min(.99,topP)))break}const mass=cut.reduce((a,x)=>a+x.v,0)||1;let r=Math.random()*mass;for(const x of cut){r-=x.v;if(r<=0)return x.i}return cut[0]?.i??1}
+export function generate(prompt='',maxTokens=24,options={}){const m=ensure(),temperature=options.temperature??.72,topK=options.topK??8,topP=options.topP??.9,repeatPenalty=options.repeatPenalty??.8;const raw=clean(prompt),ctx=tok(raw).slice(-12);let ids=ctx.length?ctx.map(t=>m.ids[t]??m.ids[START]):[m.ids[START]],out=[],recent=[];for(let i=0;i<Math.max(1,Number(maxTokens)||24);i++){const f=forward(m,ids),logits=f.logits.slice();if(out.length&&repeatPenalty>0)for(const id of recent)if(id<logits.length)logits[id]-=repeatPenalty;const chosen=sampleNext(logits,temperature,topK,topP,recent);const t=m.vocab[chosen];if(!t||t===END)break;out.push(t);recent.push(chosen);if(recent.length>5)recent.shift();ids=[...ids,chosen].slice(-12);if(out.length>=3&&out.slice(-3).every(x=>x===out[out.length-1]))break}return decode(out)}
 export function inspect(prompt=''){const m=ensure(),tokens=tok(prompt).slice(-12),ids=tokens.length?tokens.map(t=>m.ids[t]??m.ids[START]):[m.ids[START]],f=forward(m,ids);return{architecture:{embedding:CFG.dim,heads:CFG.heads,context:CFG.maxSeq},tokens,embedding:f.last.slice(0,8),attentionEnergy:f.last.reduce((a,b)=>a+Math.abs(b),0)/f.last.length,logits:f.logits}}
-export function stats(){const m=ensure();return{version:5,vocabulary:m.vocab.length,embedding:CFG.dim,heads:CFG.heads,context:CFG.maxSeq,trainSteps:m.trainSteps||0,loss:m.loss||0,optimizer:'Adam',backprop:true,fullBackprop:true,tokenizer:'Subword BPE-style',checkpoint:!!loadCheckpoint(),checkpointSteps:loadCheckpoint()?.trainSteps||0,gradNorm:m.opt?.lastGradNorm||0,learningRate:m.opt?.lastLR||CFG.lr,gradientClipping:true,lrSchedule:'warmup + decay',layers:['Q','K','V','attention','O','layernorm','FFN','embeddings','LM head']}}
-function checkpointPayload(m){return{version:5,savedAt:new Date().toISOString(),trainSteps:m.trainSteps,loss:m.loss,vocab:m.vocab,ids:m.ids,E:m.E,P:m.P,Wq:m.Wq,Wk:m.Wk,Wv:m.Wv,Wo:m.Wo,W1:m.W1,W2:m.W2,b2:m.b2,Wout:m.Wout,bout:m.bout,opt:m.opt}}
+export function stats(){const m=ensure();return{version:6,vocabulary:m.vocab.length,embedding:CFG.dim,heads:CFG.heads,context:CFG.maxSeq,trainSteps:m.trainSteps||0,loss:m.loss||0,optimizer:'Adam',backprop:true,fullBackprop:true,tokenizer:'Subword BPE-style',checkpoint:!!loadCheckpoint(),checkpointSteps:loadCheckpoint()?.trainSteps||0,gradNorm:m.opt?.lastGradNorm||0,learningRate:m.opt?.lastLR||CFG.lr,gradientClipping:true,lrSchedule:'warmup + decay',inference:{temperature:.72,topK:8,topP:.9,repetitionPenalty:.8},inferenceQuality:true,layers:['Q','K','V','attention','O','layernorm','FFN','embeddings','LM head']}}
+function checkpointPayload(m){return{version:6,savedAt:new Date().toISOString(),trainSteps:m.trainSteps,loss:m.loss,vocab:m.vocab,ids:m.ids,E:m.E,P:m.P,Wq:m.Wq,Wk:m.Wk,Wv:m.Wv,Wo:m.Wo,W1:m.W1,W2:m.W2,b2:m.b2,Wout:m.Wout,bout:m.bout,opt:m.opt}}
 export function checkpoint(label='manual'){const m=ensure();try{localStorage.setItem(CKEY,JSON.stringify({...checkpointPayload(m),label}));return{ok:true,label,trainSteps:m.trainSteps,savedAt:new Date().toISOString()}}catch{return{ok:false,label}}}
 function loadCheckpoint(){try{return JSON.parse(localStorage.getItem(CKEY))||null}catch{return null}}
 export function restoreCheckpoint(){const c=loadCheckpoint();if(!c)return{ok:false,reason:'NO_CHECKPOINT'};try{localStorage.setItem(KEY,JSON.stringify(c));return{ok:true,trainSteps:c.trainSteps,loss:c.loss,savedAt:c.savedAt}}catch{return{ok:false,reason:'RESTORE_FAILED'}}}
@@ -37,28 +44,5 @@ export function resetModel(){try{localStorage.removeItem(KEY)}catch{}}
 export function resetCheckpoint(){try{localStorage.removeItem(CKEY)}catch{}}
 export default{train,trainFromLessons,generate,inspect,stats,checkpoint,restoreCheckpoint,checkpointInfo,resetModel,resetCheckpoint};
 
-/* UI bridge: keeps the existing page compatible while exposing v5 checkpoint controls. */
-function installV5UI(){
-  const patch=()=>{
-    const statsBox=document.getElementById('llmStats');
-    if(statsBox && !document.getElementById('checkpointControls')){
-      const wrap=document.createElement('div');
-      wrap.id='checkpointControls';
-      wrap.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px';
-      wrap.innerHTML='<button class="primary mini" id="saveCheckpointBtn">💾 Save Checkpoint</button><button class="primary mini" id="restoreCheckpointBtn">↩ Restore</button><button class="primary mini" id="resetCheckpointBtn">🗑 Reset</button><span id="checkpointStatus" class="muted" style="align-self:center"></span>';
-      statsBox.parentNode.appendChild(wrap);
-      document.getElementById('saveCheckpointBtn').onclick=()=>{const r=checkpoint('manual');document.getElementById('checkpointStatus').textContent=r.ok?`✓ Saved at step ${r.trainSteps}`:'✕ Save failed';renderV5Stats()};
-      document.getElementById('restoreCheckpointBtn').onclick=()=>{const r=restoreCheckpoint();document.getElementById('checkpointStatus').textContent=r.ok?`✓ Restored step ${r.trainSteps}`:'⚠ No checkpoint';renderV5Stats()};
-      document.getElementById('resetCheckpointBtn').onclick=()=>{resetCheckpoint();document.getElementById('checkpointStatus').textContent='✓ Checkpoint deleted';renderV5Stats()};
-    }
-    const percent=document.getElementById('llmPercent'),bar=document.getElementById('llmBar'),steps=document.getElementById('llmSteps');
-    if(percent)percent.textContent='90%'; if(bar)bar.style.width='90%';
-    if(steps){steps.innerHTML=['Tokenizer','Vocabulary','Embeddings','Positional encoding','Causal self-attention','Feed-forward block','Backpropagation','Adam optimizer','Full Transformer backprop','Better tokenizer','Dataset pipeline','Checkpoint / inference pipeline','Gradient clipping','Learning-rate warmup + decay','NaN/Inf training guards','Large dataset training'].map((x,i)=>`<span class="${i<15?'done':'next'}">${i<15?'✓':'○'} ${x}</span>`).join('')}
-    document.querySelectorAll('*').forEach(el=>{if(el.children.length===0&&el.textContent.trim()==='Micro Transformer v4')el.textContent='Micro Transformer v5'});
-    renderV5Stats();
-  };
-  const renderV5Stats=()=>{const box=document.getElementById('llmStats');if(!box)return;const s=stats(),c=checkpointInfo();box.innerHTML=`Transformer: <b>v5</b> • vocab ${s.vocabulary} • train steps ${s.trainSteps} • loss ${Number(s.loss||0).toFixed(3)} • optimizer ${s.optimizer}<br>Stability: <b>clip ${s.gradientClipping?'ON':'OFF'}</b> • lr ${Number(s.learningRate||0).toFixed(5)} • grad ${Number(s.gradNorm||0).toFixed(3)}<br>Tokenizer: <b>${window.gAiTokenizer?.stats?.().merges||0}</b> learned merges • checkpoint: <b>${c.exists?'READY':'none'}</b>${c.exists?` • saved step ${c.trainSteps}`:''}`;};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',patch);else patch();
-  window.addEventListener('gAiTrainingComplete',renderV5Stats);
-}
-installV5UI();
+/* UI bridge */
+function installV6UI(){const patch=()=>{const box=document.getElementById('llmStats');if(!box)return;const percent=document.getElementById('llmPercent'),bar=document.getElementById('llmBar'),steps=document.getElementById('llmSteps');if(percent)percent.textContent='95%';if(bar)bar.style.width='95%';if(steps)steps.innerHTML=['Tokenizer','Vocabulary','Embeddings','Positional encoding','Causal self-attention','Feed-forward block','Backpropagation','Adam optimizer','Full Transformer backprop','Better tokenizer','Dataset pipeline','Checkpoint / inference pipeline','Large dataset training','Gradient clipping','Learning-rate stability','NaN/Infinity guards','Temperature sampling','Top-K sampling','Top-P nucleus sampling','Repetition control','Inference quality'].map((x,i)=>`<span class="${i<20?'done':'next'}">${i<20?'✓':'○'} ${x}</span>`).join('');let ui=document.getElementById('inferenceQualityUI');if(!ui){ui=document.createElement('div');ui.id='inferenceQualityUI';ui.style.cssText='margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1)';ui.innerHTML='<div style="font-weight:700;margin-bottom:6px">🎯 Inference Quality</div><div id="inferenceQualityText" class="muted"></div>';box.parentNode.appendChild(ui)}const s=stats(),c=checkpointInfo();document.getElementById('inferenceQualityText').textContent=`v${s.version} • vocab ${s.vocabulary} • steps ${s.trainSteps} • loss ${Number(s.loss||0).toFixed(3)} • temp ${s.inference.temperature} • top-K ${s.inference.topK} • top-P ${s.inference.topP} • repetition control ON • checkpoint ${c.exists?'READY':'none'}`};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',patch,{once:true});else setTimeout(patch,0)}installV6UI();
