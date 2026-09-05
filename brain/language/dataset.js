@@ -1,4 +1,4 @@
-/* gAi Dataset Pipeline v1
+/* gAi Dataset Pipeline v2
  * Collects verified lessons into a compact local corpus, deduplicates samples,
  * creates shuffled training batches, and persists dataset metadata in the browser.
  */
@@ -14,3 +14,7 @@ export function markEpoch(){const d=load();d.epochs++;save(d);return d.epochs}
 export function stats(){const d=load();const chars=d.samples.reduce((n,s)=>n+s.text.length,0);return{samples:d.samples.length,characters:chars,epochs:d.epochs}}
 export function clear(){try{localStorage.removeItem(KEY)}catch{}}
 export default{add,addLessons,samples,batches,markEpoch,stats,clear};
+
+/* Load the optional batch trainer after this module has finished evaluating.
+ * This keeps the existing index.html compatible and avoids a static circular import. */
+if(typeof window!=='undefined')setTimeout(()=>import('./batch_trainer.js').catch(()=>{}),0);
