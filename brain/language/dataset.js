@@ -11,10 +11,9 @@ export function addLessons(lessons=[]){let added=0;for(const l of lessons)if(add
 export function samples(){return load().samples}
 export function batches(size=4){const a=load().samples.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}const out=[];for(let i=0;i<a.length;i+=Math.max(1,size))out.push(a.slice(i,i+size));return out}
 export function markEpoch(){const d=load();d.epochs++;save(d);return d.epochs}
-export function stats(){const d=load();const chars=d.samples.reduce((n,s)=>n+s.text.length,0);return{samples:d.samples.length,characters:chars,epochs:d.epochs}}
+export function stats(){const d=load();const chars=d.samples.reduce((n,s)=>n+s.text.length,0);const topics=new Set(d.samples.map(s=>s.topic)).size;return{samples:d.samples.length,characters:chars,epochs:d.epochs,topics}}
 export function clear(){try{localStorage.removeItem(KEY)}catch{}}
 export default{add,addLessons,samples,batches,markEpoch,stats,clear};
 
-/* Load the optional batch trainer after this module has finished evaluating.
- * This keeps the existing index.html compatible and avoids a static circular import. */
-if(typeof window!=='undefined')setTimeout(()=>import('./batch_trainer.js').catch(()=>{}),0);
+/* Load optional browser-local training/evaluation modules after this module evaluates. */
+if(typeof window!=='undefined')setTimeout(()=>{import('./batch_trainer.js').catch(()=>{});import('./validation.js').catch(()=>{});},0);
