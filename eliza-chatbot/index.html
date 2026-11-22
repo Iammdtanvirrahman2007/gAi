@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10121a">
+  <title>DOCTOR | ELIZA</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <a class="brand" href="./"><span class="brand-icon">D</span><span>DOCTOR <small>ELIZA</small></span></a>
+      <div class="status"><i></i> SCRIPT ACTIVE</div>
+      <button id="new-session" class="new-session" type="button">＋ <span>New session</span></button>
+    </header>
+    <section class="stage">
+      <div class="welcome" id="welcome">
+        <div class="orb" aria-hidden="true"><span></span></div>
+        <p class="eyebrow">A SPACE TO THINK OUT LOUD</p>
+        <h1>What has been<br><em>on your mind?</em></h1>
+        <p class="welcome-copy">Tell me what is happening. We can explore it together, one thought at a time.</p>
+        <div class="prompts" id="prompts">
+          <button type="button" data-prompt="I have been feeling unhappy lately.">I've been feeling unhappy</button>
+          <button type="button" data-prompt="I want to talk about my family.">I want to talk about family</button>
+          <button type="button" data-prompt="I am not sure what is bothering me.">I'm not sure what's bothering me</button>
+        </div>
+      </div>
+      <div class="conversation" id="conversation" aria-live="polite"></div>
+    </section>
+    <section class="composer-area">
+      <form id="composer" class="composer">
+        <label class="sr-only" for="message">Message DOCTOR</label>
+        <input id="message" type="text" maxlength="2000" autocomplete="off" placeholder="Write what's on your mind..." required>
+        <button class="send" id="send" type="submit" aria-label="Send message">↑</button>
+      </form>
+      <p class="disclaimer">DOCTOR is a classic rule-based chatbot, not a medical professional.</p>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
